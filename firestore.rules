@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isLogged() { return request.auth != null; }
+    function isGestor() { 
+      return isLogged() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'gestor'; 
+    }
+    
+    // Permite que bartenders logados deem baixa apenas no campo 'estoque' durante transações de venda
+    function isStockDeductionOnly() {
+      return isLogged() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estoque']) &&
+        request.resource.data.estoque.estoque_minimo == resource.data.estoque.estoque_minimo;
+    }
+
+    match /users/{userId} {
+      allow read: if isLogged() && (request.auth.uid == userId || isGestor());
+      allow write: if isGestor();
+    }
+
+    match /recipes/{recipeId} {
+      allow read: if isLogged();
+      allow write: if isGestor();
+    }
+
+    match /ingredients/{ingredientId} {
+      allow read: if isLogged();
+      allow write: if isGestor();
+      allow update: if isGestor() || isStockDeductionOnly();
+    }
+
+    match /suppliers/{supplierId} {
+      allow read, write: if isGestor();
+    }
+  }
+}
+
